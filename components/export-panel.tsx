@@ -269,7 +269,7 @@ export default function ExportPanel({ month }: { month: string }) {
     </>
   );
 }
-function Diff({ diff }: { diff: ExportDiff }) {
+export function Diff({ diff }: { diff: ExportDiff }) {
   const row = (r: RecordRow) => (
     <span>
       {r.name} / {r.student_no}：{r.content}（
@@ -279,6 +279,7 @@ function Diff({ diff }: { diff: ExportDiff }) {
   return (
     <>
       <h3>新增</h3>
+      {diff.added.length === 0 && <p className="muted">无</p>}
       {diff.added.map((r) => (
         <p key={r.id}>{row(r)}</p>
       ))}
@@ -297,6 +298,7 @@ function Diff({ diff }: { diff: ExportDiff }) {
         </p>
       ))}
       <h3>修改</h3>
+      {diff.modified.length === 0 && <p className="muted">无</p>}
       {diff.modified.map((m) => (
         <div className="diff-pre" key={m.after.id}>
           <p>
@@ -308,6 +310,7 @@ function Diff({ diff }: { diff: ExportDiff }) {
         </div>
       ))}
       <h3>移出本版</h3>
+      {diff.removed.length === 0 && <p className="muted">无</p>}
       {diff.removed.map((r) => (
         <p key={r.id}>
           {row(r)} — {diff.removalReasons?.[r.id] ?? "移出当前范围"}
