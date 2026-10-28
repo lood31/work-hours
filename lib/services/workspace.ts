@@ -6,12 +6,15 @@ import {
   canReview,
   monthCheck,
   RecordRow,
+  DraftCount,
 } from "../domain/model";
 import { idempotent, monthLock, refreshActor } from "./common";
 import { GroupPeriod } from "./exports";
 export async function workspace(a: Actor, month: string, mode: string) {
   monthCheck(month);
   const db = getDB();
+  assert(["me", "review", "admin"].includes(mode), "工作台模式无效");
+  assert(!(a.is_admin && mode === "me"), "总负责人不参与个人工时填报", 403);
   const review = mode === "review";
   const admin = mode === "admin";
   if (admin) assert(a.is_admin, "需要总负责人权限", 403);
@@ -26,7 +29,7 @@ export async function workspace(a: Actor, month: string, mode: string) {
       : "student_id=$2";
   const records = (
     await db.query<RecordRow>(
-      `SELECT * FROM records WHERE month=$1 AND deleted_at IS NULL AND ${scope} ORDER BY updated_at DESC`,
+      `SELECT * FROM records WHERE month=$1 AND deleted_at IS NULL AND ${scope} ${mode === "me" ? "" : "AND status <> 'draft'"} ORDER BY updated_at DESC`,
       admin ? [month] : [month, review ? groupIds : a.id],
     )
   ).rows;
@@ -43,7 +46,13 @@ export async function workspace(a: Actor, month: string, mode: string) {
         )
       ).rows
     : [];
-  return { actor: a, records, periods, exports };
+  const draftCounts = (
+    await db.query<DraftCount>(
+      `SELECT group_id,count(*)::int count FROM records WHERE month=$1 AND deleted_at IS NULL AND status='draft' AND ${scope} GROUP BY group_id`,
+      admin ? [month] : [month, review ? groupIds : a.id],
+    )
+  ).rows;
+  return { actor: a, records, periods, exports, draftCounts };
 }
 export async function checkGroup(a: Actor, body: unknown, key: string) {
   const b = z
@@ -87,14 +96,16 @@ export async function recordHistory(a: Actor, id: string) {
     await getDB().query<RecordRow>("SELECT * FROM records WHERE id=$1", [id])
   ).rows[0];
   assert(
-    r && (r.student_id === a.id || canReview(a, r.group_id)),
+    r &&
+      (r.student_id === a.id ||
+        (r.status !== "draft" && canReview(a, r.group_id))),
     "没有查看权限",
     403,
   );
   return (
     await getDB().query(
-      "SELECT v.revision,v.action,v.snapshot,v.note,v.created_at,u.name actor_name FROM record_versions v JOIN users u ON u.id=v.actor_id WHERE v.record_id=$1 ORDER BY v.created_at,v.revision",
-      [id],
+      "SELECT v.revision,v.action,v.snapshot,v.note,v.created_at,u.name actor_name FROM record_versions v JOIN users u ON u.id=v.actor_id WHERE v.record_id=$1 AND (v.snapshot->>'status' <> 'draft' OR v.snapshot->>'student_id'=$2) ORDER BY v.created_at,v.revision",
+      [id, a.id],
     )
   ).rows;
 }
@@ -138,7 +149,7 @@ export async function team(a: Actor, group: number) {
   return (
     await getDB().query<{ id: string; name: string; student_no: string }>(
       `SELECT u.id,u.name,u.student_no FROM users u JOIN memberships m ON m.user_id=u.id
-    WHERE m.group_id=$1 AND u.student_no IS NOT NULL AND u.disabled_at IS NULL ORDER BY u.student_no`,
+    WHERE m.group_id=$1 AND u.student_no IS NOT NULL AND u.is_admin=false AND u.disabled_at IS NULL ORDER BY u.student_no`,
       [group],
     )
   ).rows;

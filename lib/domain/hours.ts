@@ -33,3 +33,7 @@ export function expenseHours(yuan: string) {
   assert(units <= 2000000n, "折算工时超过单条200小时上限");
   return formatHours(Number(units));
 }
+
+export function displayHours(n: number | null) {
+  return n === null ? "未填写" : formatHours(n);
+}

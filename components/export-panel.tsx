@@ -71,6 +71,7 @@ export default function ExportPanel({ month }: { month: string }) {
   const incomplete = Boolean(
     preview &&
     (preview.excluded.length ||
+      preview.draftCounts.some((g) => g.count > 0) ||
       preview.groups.some((g) => g.period?.status !== "checked")),
   );
   return (
@@ -99,7 +100,9 @@ export default function ExportPanel({ month }: { month: string }) {
             {preview.previous && (
               <p className="muted">
                 相比上次导出：
-                {formatHours(preview.totals.hours - preview.previous.hours)}{" "}
+                {formatHours(
+                  preview.totals.hours - preview.previous.hours,
+                )}{" "}
                 小时，{money(preview.totals.amount - preview.previous.amount)}{" "}
                 元。
               </p>
@@ -119,6 +122,19 @@ export default function ExportPanel({ month }: { month: string }) {
                   仍有未核对组或未通过记录，下方内容不会计入本版。申报工时不等于核定应付款，未完整草稿不能准确估算。
                 </p>
               </div>
+            )}
+            {preview.draftCounts.some((g) => g.count > 0) && (
+              <p className="notice">
+                未提交草稿：
+                {preview.draftCounts
+                  .filter((g) => g.count > 0)
+                  .map(
+                    (g) =>
+                      `${preview.groups.find((x) => x.id === g.group_id)?.name} ${g.count}条`,
+                  )
+                  .join("；")}
+                。草稿内容仅本人可见，未提交、无法核定，不进入本次工时和金额；不能按0元估算。
+              </p>
             )}
             {preview.excluded.length > 0 && (
               <>

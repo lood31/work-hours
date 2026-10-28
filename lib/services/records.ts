@@ -28,7 +28,7 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
   return getDB().transaction(async (tx) => {
     await monthLock(tx, b.month);
     const a = await refreshActor(tx, actor.id);
-    return idempotent(tx, a, "save", key, b, async () => {
+    const result = await idempotent(tx, a, "save", key, b, async () => {
       const old = b.id
         ? (
             await tx.query<RecordRow>(
@@ -40,13 +40,24 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
       if (b.id) assert(old && !old.deleted_at, "记录不存在", 404);
       const student = old?.student_id ?? b.student_id ?? a.id;
       const user = (
-        await tx.query<{ id: string; name: string; student_no: string }>(
-          "SELECT id,name,student_no FROM users WHERE id=$1 AND disabled_at IS NULL",
+        await tx.query<{
+          id: string;
+          name: string;
+          student_no: string;
+          is_admin: boolean;
+        }>(
+          "SELECT id,name,student_no,is_admin FROM users WHERE id=$1 AND disabled_at IS NULL",
           [student],
         )
       ).rows[0];
+      assert(user && !user.is_admin, "总负责人不参与个人工时填报", 403);
       assert(user?.student_no, "学生须先完善姓名和学号");
       if (old) {
+        assert(
+          old.status !== "draft" || old.student_id === a.id,
+          "草稿仅本人可操作",
+          403,
+        );
         assert(
           old.month === b.month && old.group_id === b.group_id,
           "不能改变记录归属",
@@ -71,6 +82,7 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
         );
         if (student !== a.id) {
           assert(canReview(a, b.group_id), "只有负责人可以代录管理工时", 403);
+          assert(b.submit, "代录管理工时须正式提交，不能保存他人草稿");
           assert(b.reason?.trim(), "代录管理工时必须说明原因");
           assert(
             (
@@ -107,7 +119,7 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
           `INSERT INTO records(id,student_id,group_id,month,name,student_no,content,hours_units,remark,status,created_by,submitted_at)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12 THEN now() ELSE NULL END)
         ON CONFLICT(id) DO UPDATE SET content=$7,hours_units=$8,remark=$9,status=$10,revision=records.revision+1,
-        confirmed_hours_units=NULL,adjust_reason=NULL,reject_reason=NULL,reviewer_id=NULL,reviewed_at=NULL,
+        confirmed_hours_units=NULL,adjust_reason=NULL,reject_reason=$13,reviewer_id=NULL,reviewed_at=NULL,
         submitted_at=CASE WHEN $12 THEN now() ELSE records.submitted_at END,updated_at=now() RETURNING *`,
           [
             id,
@@ -122,6 +134,7 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
             status,
             old?.created_by ?? a.id,
             Boolean(formal),
+            old?.status === "rejected" && !b.submit ? old.reject_reason : null,
           ],
         )
       ).rows[0];
@@ -130,6 +143,18 @@ export async function saveRecord(actor: Actor, body: unknown, key: string) {
         await invalidate(tx, row, "有提交或修改，需重新核对");
       return row;
     });
+    // Replayed legacy requests must respect the new private-draft boundary too.
+    assert(
+      result.status !== "draft" || result.student_id === a.id,
+      "草稿仅本人可操作",
+      403,
+    );
+    assert(
+      !(a.is_admin && result.student_id === a.id),
+      "总负责人不参与个人工时填报",
+      403,
+    );
+    return result;
   });
 }
 export async function reviewRecord(actor: Actor, body: unknown, key: string) {
@@ -146,7 +171,7 @@ export async function reviewRecord(actor: Actor, body: unknown, key: string) {
   return getDB().transaction(async (tx) => {
     await monthLock(tx, b.month);
     const a = await refreshActor(tx, actor.id);
-    return idempotent(tx, a, "review", key, b, async () => {
+    const result = await idempotent(tx, a, "review", key, b, async () => {
       const r = (
         await tx.query<RecordRow>(
           "SELECT * FROM records WHERE id=$1 FOR UPDATE",
@@ -154,6 +179,11 @@ export async function reviewRecord(actor: Actor, body: unknown, key: string) {
         )
       ).rows[0];
       assert(r && !r.deleted_at && r.month === b.month, "记录不存在", 404);
+      assert(
+        r.status !== "draft" || r.student_id === a.id,
+        "草稿仅本人可操作",
+        403,
+      );
       assert(r.revision === b.revision, "记录已变化，请重载审核", 409);
       if (b.action === "void") {
         assert(
@@ -213,5 +243,11 @@ export async function reviewRecord(actor: Actor, body: unknown, key: string) {
       await invalidate(tx, r, "审核结果变化，需重新核对");
       return updated;
     });
+    assert(
+      result.status !== "draft" || result.student_id === a.id,
+      "草稿仅本人可操作",
+      403,
+    );
+    return result;
   });
 }

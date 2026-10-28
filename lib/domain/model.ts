@@ -42,12 +42,17 @@ export interface RecordRow {
   created_at: string;
   updated_at: string;
 }
+export interface DraftCount {
+  group_id: number;
+  count: number;
+}
 export interface Snapshot {
   month: string;
   version: number;
   exportedAt: string;
   rate: number;
-  format: 1;
+  format: 1 | 2;
+  draftCounts?: DraftCount[];
   records: RecordRow[];
   excluded: RecordRow[];
 }
@@ -66,7 +71,7 @@ export function canReview(a: Actor, g: number) {
   return a.is_admin || a.groups.some((m) => m.group_id === g && m.is_reviewer);
 }
 export function canFill(a: Actor, g: number) {
-  return a.groups.some((m) => m.group_id === g);
+  return !a.is_admin && a.groups.some((m) => m.group_id === g);
 }
 export function monthCheck(m: string) {
   assert(/^\d{4}-(0[1-9]|1[0-2])$/.test(m), "月份格式应为 YYYY-MM");

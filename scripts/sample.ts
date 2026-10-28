@@ -43,7 +43,8 @@ const snapshot: Snapshot = {
   version: 1,
   exportedAt: now,
   rate: 2500,
-  format: 1,
+  format: 2,
+  draftCounts: [],
   records,
   excluded: [],
 };

@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getDB, DB } from "../db";
-import { Actor, assert, GROUPS, RecordRow, Snapshot } from "../domain/model";
+import {
+  Actor,
+  assert,
+  GROUPS,
+  RecordRow,
+  Snapshot,
+  DraftCount,
+} from "../domain/model";
 import { diffRecords, totals } from "../domain/summary";
 import { hash, idempotent, monthLock, refreshActor } from "./common";
 export interface GroupPeriod {
@@ -31,7 +38,14 @@ async function readPreflight(tx: DB, month: string) {
   ).rows;
   const records = allRecords.filter((r) => !r.deleted_at);
   const approved = records.filter((r) => r.status === "approved");
-  const excluded = records.filter((r) => r.status !== "approved");
+  const excluded = records.filter(
+    (r) => r.status !== "approved" && r.status !== "draft",
+  );
+  const draftCounts: DraftCount[] = GROUPS.map((_, i) => ({
+    group_id: i + 1,
+    count: records.filter((r) => r.group_id === i + 1 && r.status === "draft")
+      .length,
+  }));
   const periods = (
     await tx.query<GroupPeriod>(
       "SELECT * FROM group_periods WHERE month=$1 ORDER BY group_id",
@@ -74,6 +88,7 @@ async function readPreflight(tx: DB, month: string) {
     name,
     period: periods.find((p) => p.group_id === i + 1),
     totals: totals(approved.filter((r) => r.group_id === i + 1)),
+    draftCount: draftCounts[i].count,
     excluded: excluded.filter((r) => r.group_id === i + 1),
   }));
   const preflightHash = hash(
@@ -85,6 +100,7 @@ async function readPreflight(tx: DB, month: string) {
   );
   return {
     groups,
+    draftCounts,
     approved,
     excluded,
     totals: totals(approved),
@@ -127,7 +143,8 @@ export async function createExport(
         );
         const incomplete =
           p.groups.some((g) => g.period?.status !== "checked") ||
-          p.excluded.length > 0;
+          p.excluded.length > 0 ||
+          p.draftCounts.some((g) => g.count > 0);
         assert(
           !incomplete || partial,
           "尚有未核对组或排除记录，请明确确认部分导出",
@@ -143,7 +160,8 @@ export async function createExport(
           month,
           version: (last?.version ?? 0) + 1,
           exportedAt: new Date().toISOString(),
-          format: 1,
+          format: 2,
+          draftCounts: p.draftCounts,
           rate: 2500,
           records: p.approved,
           excluded: p.excluded,

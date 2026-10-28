@@ -7,7 +7,7 @@ import {
   STATUS,
   canReview,
 } from "../lib/domain/model";
-import { expenseHours, formatHours } from "../lib/domain/hours";
+import { expenseHours, formatHours, displayHours } from "../lib/domain/hours";
 import { api } from "./client";
 interface History {
   actor_name: string;
@@ -369,9 +369,11 @@ export default function RecordEditor({
             )}
             {editable && (!review || !record) && (
               <div className="form-actions">
-                <button type="button" onClick={() => save(false)}>
-                  {record ? "保存修改" : "保存草稿"}
-                </button>
+                {!manager && (
+                  <button type="button" onClick={() => save(false)}>
+                    {record ? "保存修改" : "保存草稿"}
+                  </button>
+                )}
                 <button type="submit" className="primary">
                   {record?.status === "approved"
                     ? "保存并重新送审"
@@ -452,8 +454,8 @@ export default function RecordEditor({
             <h3>上一版已通过内容</h3>
             <p>{last.content}</p>
             <p>
-              申报 {formatHours(last.hours_units)} h / 确认{" "}
-              {formatHours(last.confirmed_hours_units ?? last.hours_units)} h
+              申报 {displayHours(last.hours_units)} h / 确认{" "}
+              {displayHours(last.confirmed_hours_units ?? last.hours_units)} h
             </p>
             <p>{last.remark}</p>
           </section>
@@ -478,8 +480,8 @@ export default function RecordEditor({
                   <pre>
                     {h.snapshot.content}
                     <br />
-                    申报 {formatHours(h.snapshot.hours_units)} h / 确认{" "}
-                    {formatHours(h.snapshot.confirmed_hours_units)} h<br />
+                    申报 {displayHours(h.snapshot.hours_units)} h / 确认{" "}
+                    {displayHours(h.snapshot.confirmed_hours_units)} h<br />
                     {h.snapshot.remark}
                   </pre>
                 </article>

@@ -121,7 +121,8 @@ async function handle(req: NextRequest) {
           await workspace(
             a,
             month,
-            req.nextUrl.searchParams.get("mode") ?? "me",
+            req.nextUrl.searchParams.get("mode") ??
+              (a.is_admin ? "admin" : "me"),
           ),
         );
       if (path === "history")

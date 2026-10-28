@@ -7,9 +7,10 @@ import {
   RecordRow,
   STATUS,
   Status,
+  DraftCount,
 } from "../lib/domain/model";
-import { formatHours, money } from "../lib/domain/hours";
-import { effectiveHours, totals } from "../lib/domain/summary";
+import { formatHours, money, displayHours } from "../lib/domain/hours";
+import { totals } from "../lib/domain/summary";
 import type { GroupPeriod } from "../lib/services/exports";
 import { api } from "./client";
 import RecordEditor from "./record-editor";
@@ -19,9 +20,10 @@ interface Data {
   records: RecordRow[];
   periods: GroupPeriod[];
   actor: Actor;
+  draftCounts: DraftCount[];
 }
 export default function Workspace({ actor }: { actor: Actor }) {
-  const [mode, setMode] = useState("me");
+  const [mode, setMode] = useState(actor.is_admin ? "admin" : "me");
   const [month, setMonth] = useState(currentMonth());
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
@@ -42,7 +44,7 @@ export default function Workspace({ actor }: { actor: Actor }) {
     setError("");
     setData(null);
     api<Data>(
-      `workspace?month=${month}&mode=${["me", "review", "admin"].includes(mode) ? mode : "me"}`,
+      `workspace?month=${month}&mode=${["me", "review", "admin"].includes(mode) ? mode : actor.is_admin ? "admin" : "me"}`,
       undefined,
       undefined,
       controller.signal,
@@ -131,12 +133,14 @@ export default function Workspace({ actor }: { actor: Actor }) {
         </a>
         <nav className="nav" aria-label="工作台导航">
           <small>工作空间</small>
-          <button
-            className={mode === "me" ? "active" : ""}
-            onClick={() => changeMode("me")}
-          >
-            我的工时
-          </button>
+          {!a.is_admin && (
+            <button
+              className={mode === "me" ? "active" : ""}
+              onClick={() => changeMode("me")}
+            >
+              我的工时
+            </button>
+          )}
           {(a.is_admin || a.groups.some((g) => g.is_reviewer)) && (
             <button
               className={reviewing ? "active" : ""}
@@ -316,6 +320,11 @@ export default function Workspace({ actor }: { actor: Actor }) {
                           {rs.filter((r) => r.status !== "approved").length}{" "}
                           条未确认
                         </p>
+                        <p className="hint">
+                          {data?.draftCounts.find((g) => g.group_id === i + 1)
+                            ?.count ?? 0}{" "}
+                          条未提交草稿（仅数量可见）
+                        </p>
                         {p?.invalidate_reason && p.status !== "checked" && (
                           <p className="hint">变化：{p.invalidate_reason}</p>
                         )}
@@ -357,11 +366,13 @@ export default function Workspace({ actor }: { actor: Actor }) {
                   onChange={(e) => setStatus(e.target.value)}
                 >
                   <option value="">全部状态</option>
-                  {Object.entries(STATUS).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v}
-                    </option>
-                  ))}
+                  {Object.entries(STATUS)
+                    .filter(([k]) => mode === "me" || k !== "draft")
+                    .map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
                 </select>
               </div>
               <section className="panel">
@@ -403,7 +414,9 @@ export default function Workspace({ actor }: { actor: Actor }) {
                                 )}
                               </td>
                               <td className="num">
-                                {formatHours(effectiveHours(r))}
+                                {displayHours(
+                                  r.confirmed_hours_units ?? r.hours_units,
+                                )}
                                 <small>
                                   申报 {formatHours(r.hours_units) || "未填写"}{" "}
                                   h
@@ -428,7 +441,13 @@ export default function Workspace({ actor }: { actor: Actor }) {
                           <p>{r.content || "未填写工作内容"}</p>
                           <div className="inline">
                             <strong>
-                              {formatHours(effectiveHours(r))} 小时
+                              {displayHours(
+                                r.confirmed_hours_units ?? r.hours_units,
+                              )}
+                              {(r.confirmed_hours_units ?? r.hours_units) !==
+                              null
+                                ? " 小时"
+                                : ""}
                             </strong>
                             <small>
                               {r.name} · {r.student_no}

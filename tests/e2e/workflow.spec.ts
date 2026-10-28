@@ -12,7 +12,10 @@ async function login(p: Page, user: string) {
   await p.getByLabel("密码", { exact: true }).fill(password);
   await p.getByRole("button", { name: "登录", exact: true }).click();
   await expect(
-    p.getByRole("heading", { name: "我的工时", exact: true }),
+    p.getByRole("heading", {
+      name: user === "admin" ? "月度总览" : "我的工时",
+      exact: true,
+    }),
   ).toBeVisible();
 }
 async function post(p: Page, path: string, body: unknown) {
@@ -107,6 +110,16 @@ test("三角色闭环、版本快照、手机适配与成员邀请", async ({ br
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load((await readFile(path!)) as never);
   expect(wb.worksheets).toHaveLength(5);
+  let groupRow: ExcelJS.Row | undefined;
+  wb.worksheets[0].eachRow((r) => {
+    if (r.getCell(1).value === "本组合计") groupRow = r;
+  });
+  expect(groupRow?.getCell(2).value).toBeNull();
+  expect(groupRow?.getCell(4).value).toHaveProperty("formula");
+  expect(groupRow?.getCell(5).alignment.horizontal).toBe("left");
+  expect(groupRow?.getCell(4).fill).toMatchObject({
+    fgColor: { argb: "FFE6E5DF" },
+  });
   expect(wb.worksheets[0].getCell("B2").value).toBe("0000001002");
   await expect(
     admin.getByRole("cell", { name: "v1", exact: true }),
@@ -236,4 +249,104 @@ test("管理工时代录UI及HTTP越权/来源保护", async ({ browser }) => {
   await lc.close();
   await ac.close();
   await sc.close();
+});
+
+test("草稿仅本人可见、空值显示、退回保存保因与管理员无个人入口", async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext(),
+    lc = await browser.newContext(),
+    ac = await browser.newContext();
+  const s = await ctx.newPage(),
+    l = await lc.newPage(),
+    a = await ac.newPage();
+  const isolated = "2096-08";
+  await login(a, "admin");
+  await expect(
+    a.getByRole("button", { name: "我的工时", exact: true }),
+  ).toHaveCount(0);
+  await expect(a.getByRole("button", { name: "新增工时记录" })).toHaveCount(0);
+  expect((await a.request.get("/api/workspace?mode=me")).status()).toBe(403);
+  await a.getByRole("button", { name: "导出与版本", exact: true }).click();
+  await expect(a.locator(".notice.error[role=alert]")).toHaveCount(0);
+  await a.getByRole("button", { name: "成员与邀请", exact: true }).click();
+  await expect(a.getByRole("heading", { name: "成员与权限" })).toBeVisible();
+  await expect(a.locator(".notice.error[role=alert]")).toHaveCount(0);
+  await login(s, "0000001002");
+  await s.locator("input[type=month]").fill(isolated);
+  await s.getByRole("button", { name: "新增工时记录" }).click();
+  await s.getByLabel("工作内容", { exact: true }).fill("草稿隐私唯一标记");
+  await s.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(s.getByRole("dialog")).not.toBeVisible();
+  const row = s
+    .locator(".desktop-records tbody tr")
+    .filter({ hasText: "草稿隐私唯一标记" });
+  await expect(row.locator("td.num")).toContainText("未填写");
+  const w = await (
+    await s.request.get(`/api/workspace?month=${isolated}&mode=me`)
+  ).json();
+  const draft = w.records[0];
+  await login(l, "lead");
+  const visible = await (
+    await l.request.get(`/api/workspace?month=${isolated}&mode=review`)
+  ).json();
+  expect(JSON.stringify(visible)).not.toContain("草稿隐私唯一标记");
+  expect(
+    visible.draftCounts.find((g: { group_id: number }) => g.group_id === 1)
+      .count,
+  ).toBe(1);
+  expect((await l.request.get(`/api/history?id=${draft.id}`)).status()).toBe(
+    403,
+  );
+  const preview = await (
+    await a.request.get(`/api/preflight?month=${isolated}`)
+  ).json();
+  expect(JSON.stringify(preview)).not.toContain("草稿隐私唯一标记");
+  expect(preview.excluded).toHaveLength(0);
+  await row.getByRole("button", { name: "查看 / 修改" }).click();
+  await s
+    .getByPlaceholder("说明完成的事项；奖励、管理工作也在此注明")
+    .fill("正式提交记录");
+  await s.getByLabel("申报工时（小时）").fill("0");
+  await s.getByRole("button", { name: "提交审核", exact: true }).click();
+  await expect(s.getByRole("dialog")).not.toBeVisible();
+  let records = await (
+    await l.request.get(`/api/workspace?month=${isolated}&mode=review`)
+  ).json();
+  let r = records.records[0];
+  await post(l, "review", {
+    id: r.id,
+    month: isolated,
+    revision: r.revision,
+    action: "reject",
+    reason: "请补充凭据",
+  });
+  await s.getByRole("button", { name: "刷新数据" }).click();
+  let rejected = s
+    .locator(".desktop-records tbody tr")
+    .filter({ hasText: "正式提交记录" });
+  await expect(rejected).toContainText("退回：请补充凭据");
+  await rejected.getByRole("button", { name: "查看 / 修改" }).click();
+  await s
+    .getByPlaceholder("说明完成的事项；奖励、管理工作也在此注明")
+    .fill("保存但未重提");
+  await s.getByRole("button", { name: "保存修改", exact: true }).click();
+  await expect(s.getByRole("dialog")).not.toBeVisible();
+  rejected = s
+    .locator(".desktop-records tbody tr")
+    .filter({ hasText: "保存但未重提" });
+  await expect(rejected).toContainText("退回：请补充凭据");
+  await expect(rejected.locator("td.num")).toContainText("0");
+  await rejected.getByRole("button", { name: "查看 / 修改" }).click();
+  await expect(s.getByText("退回原因：请补充凭据")).toBeVisible();
+  await s.getByRole("button", { name: "提交审核", exact: true }).click();
+  await expect(s.getByRole("dialog")).not.toBeVisible();
+  const history = await (
+    await l.request.get(`/api/history?id=${draft.id}`)
+  ).json();
+  expect(JSON.stringify(history)).not.toContain("草稿隐私唯一标记");
+  expect(JSON.stringify(history)).toContain("请补充凭据");
+  await ctx.close();
+  await lc.close();
+  await ac.close();
 });
