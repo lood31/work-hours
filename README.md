@@ -11,7 +11,9 @@
 | 可使用的网址 | [打开工时簿](https://work-hours-puce.vercel.app)；学生支持手机浏览器，审核与汇总建议使用电脑 |
 | 负责人账号开通方式 | 总负责人生成组别邀请 → 受邀者注册或登录后接受邀请 → 总负责人在成员列表授予对应组审核权限 |
 | 简短操作说明 | [交付说明](交付说明.md) · [三角色操作说明](docs/操作说明.md) |
-| 虚构数据测试导出样例 | [下载 Excel 样例](docs/虚构数据_2026-09_v1.xlsx?raw=true)，五个工作表、10名虚构学生、16条记录 |
+| 虚构数据测试导出样例 | [下载 Excel 样例](https://github.com/lood31/work-hours/releases/download/handover-v1/work-hours-sample-v1.xlsx)，五个工作表、10名虚构学生、16条记录 |
+
+Excel 已作为 GitHub Release 附件上传；若直接下载受网络限制，可打开[交付附件页](https://github.com/lood31/work-hours/releases/tag/handover-v1)，在 **Assets** 中点击 `work-hours-sample-v1.xlsx`。仓库内也保留[同一份原文件](docs/虚构数据_2026-09_v1.xlsx)。
 
 ### 如何获得审核账号
 
